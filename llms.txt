@@ -1,0 +1,311 @@
+# analytics-cli
+
+> Node.js CLI for read-only access to Google Analytics 4 data. Queries the GA4 Data API and Admin API. Authenticates via OAuth 2.0. Read-only — no mutations. All commands output table, JSON, or CSV. Property IDs accept bare numbers (auto-prefixed with `properties/`). Account IDs accept bare numbers (auto-prefixed with `accounts/`).
+
+## Authentication
+
+OAuth 2.0 desktop app flow. Requires a `client_secret_*.json` file in the project root (gitignored).
+
+1. Run `analytics-cli login`
+2. A local HTTP server starts on a random port
+3. Your browser opens to Google's OAuth consent screen
+4. Grant access — Google redirects back to `http://localhost:<port>` with an auth code
+5. The CLI exchanges the code for access + refresh tokens
+6. Tokens are saved to `~/.ga-cli/tokens.json`
+
+After login, all commands auto-refresh the access token using the stored refresh token. No manual re-auth needed unless the refresh token is revoked.
+
+- `analytics-cli login` — authenticate via browser
+- `analytics-cli logout` — clear stored tokens
+- `analytics-cli whoami` — show current authenticated user (email, name)
+
+## Global Flags
+
+Every command accepts these flags:
+
+- `--json` — output raw JSON (structured envelope for report commands)
+- `--csv` — output as CSV
+- `--output <filepath>` — write output to a file instead of stdout
+- `--property <id>` — set and save a default property to `~/.ga-cli/config.json`
+- `--verbose` — show full error stack traces
+
+## Batch Command (top-level)
+
+Run multiple named report queries in one invocation. Reads JSON from stdin by default, or from a file with `--queries`.
+
+```
+echo '[...]' | analytics-cli batch <propertyId> [--json]
+analytics-cli batch <propertyId> --queries <file> [--json]
+```
+
+This is a convenience alias — equivalent to `report batch` but as a top-level command. Reads stdin by default (no `--stdin` flag needed). See "report batch" below for the query JSON format.
+
+## Report Commands
+
+### report run
+
+Run a GA4 report. This is the primary command for querying analytics data.
+
+```
+analytics-cli report run <propertyId> [options]
+```
+
+Options:
+- `--dimensions <dims>` — comma-separated dimension names (e.g. `pagePath,deviceCategory`)
+- `--metrics <metrics>` — comma-separated metric names (e.g. `sessions,activeUsers`)
+- `--start <date>` — start date as YYYY-MM-DD (default: `30daysAgo`)
+- `--end <date>` — end date as YYYY-MM-DD (default: `today`)
+- `--compare-start <date>` — comparison period start date
+- `--compare-end <date>` — comparison period end date
+- `--limit <n>` — row limit (default: `100`)
+- `--order-by <metric>` — sort by this metric
+- `--asc` — ascending order (default is descending)
+- `--filter <expr>` — dimension filter, repeatable, AND logic
+- `--metric-filter <expr>` — metric filter, repeatable, AND logic
+
+When `--json` is used, output is a structured envelope:
+
+```json
+{
+  "dimensions": ["pagePath"],
+  "metrics": ["sessions"],
+  "rows": [{"pagePath": "/", "sessions": 1234}],
+  "rowCount": 1,
+  "metadata": {
+    "dateRange": {"start": "30daysAgo", "end": "today"},
+    "compareRange": null,
+    "property": "properties/123456",
+    "filters": ["pagePath contains /blog/"]
+  }
+}
+```
+
+### Dimension Filter Syntax
+
+Used with `--filter`. Multiple `--filter` flags are combined with AND logic.
+
+- `field == value` — exact match
+- `field != value` — not equal
+- `field contains value` — substring match
+- `field begins value` — starts with
+- `field ends value` — ends with
+- `field matches regex` — full regexp match
+- `field in val1|val2|val3` — in-list match
+
+Examples:
+- `--filter "pagePath contains /blog/"`
+- `--filter "deviceCategory == mobile"`
+- `--filter "country in US|CA|GB"`
+
+### Metric Filter Syntax
+
+Used with `--metric-filter`. Multiple flags are combined with AND logic.
+
+- `metric > N`
+- `metric < N`
+- `metric >= N`
+- `metric <= N`
+- `metric == N`
+
+Examples:
+- `--metric-filter "sessions > 100"`
+- `--metric-filter "bounceRate < 50"`
+
+### report batch
+
+Run multiple named queries in one invocation. Accepts a JSON file or stdin.
+
+```
+analytics-cli report batch <propertyId> --queries <file> [--json]
+analytics-cli report batch <propertyId> --stdin [--json]
+```
+
+Query JSON format — an array of objects with the same fields as `report run` flags:
+
+```json
+[
+  {
+    "name": "top-pages",
+    "dimensions": "pagePath",
+    "metrics": "sessions",
+    "limit": "10",
+    "filter": ["pagePath contains /blog/"]
+  },
+  {
+    "name": "devices",
+    "dimensions": "deviceCategory",
+    "metrics": "sessions,bounceRate"
+  }
+]
+```
+
+Each query object supports: `name`, `dimensions`, `metrics`, `start`, `end`, `compareStart`, `compareEnd`, `limit`, `orderBy`, `asc`, `filter` (string or array), `metricFilter` (string or array).
+
+Output with `--json` is `{"top-pages": [...rows], "devices": [...rows]}`.
+
+### report realtime
+
+```
+analytics-cli report realtime <propertyId> --dimensions <dims> --metrics <metrics>
+```
+
+### report cohort
+
+```
+analytics-cli report cohort <propertyId> --date-ranges start:end,start:end --metrics <metrics> [--cohort-dimension <dim>]
+```
+
+### report pivot
+
+Run a pivot report for cross-tabulating dimensions.
+
+```
+analytics-cli report pivot <propertyId> --dimensions <dims> --metrics <metrics> --pivots <spec> [options]
+```
+
+Options:
+- `--dimensions <dims>` — comma-separated dimensions
+- `--metrics <metrics>` — comma-separated metrics
+- `--pivots <spec>` — pivot spec (repeatable): `fieldNames:dim1,dim2;limit:N;orderBy:metric`
+- `--start <date>` / `--end <date>` — date range
+- `--limit <n>` — row limit (default: 100)
+
+Example:
+```
+analytics-cli report pivot 123 --dimensions country,deviceCategory --metrics sessions --pivots "fieldNames:deviceCategory;limit:3" --json
+```
+
+### report funnel
+
+```
+analytics-cli report funnel <propertyId> --steps name:eventName,name:eventName [--dimensions <dim>] [--start <date>] [--end <date>]
+```
+
+## Admin Commands
+
+### accounts
+
+- `analytics-cli accounts list` — list all accounts (name, displayName, createTime)
+- `analytics-cli accounts get <accountId>` — get account details
+- `analytics-cli accounts summary` — list all accounts with their properties in one call
+- `analytics-cli accounts change-history <accountId> [options]` — search change history events
+  - `--property <id>` — filter by property
+  - `--resource-type <type>` — filter by resource type (comma-separated)
+  - `--action <action>` — filter by action (CREATED, UPDATED, DELETED)
+  - `--start <date>` / `--end <date>` — time range
+  - `--actor <email>` — filter by actor email
+  - `--limit <n>` — max results (default: 50)
+- `analytics-cli accounts access-report <accountId> [options]` — audit who accessed data
+  - `--dimensions <dims>` — e.g. accessorEmail,accessMechanism
+  - `--metrics <metrics>` — e.g. accessCount
+  - `--start <date>` / `--end <date>` — date range
+  - `--limit <n>` — row limit (default: 100)
+
+### properties
+
+- `analytics-cli properties list <accountId>` — list properties for an account
+- `analytics-cli properties get <propertyId>` — get property details (timeZone, currency, industry)
+- `analytics-cli properties access-report <propertyId> [options]` — audit who accessed data (same options as accounts access-report)
+
+### streams
+
+- `analytics-cli streams list <propertyId>` — list data streams
+- `analytics-cli streams get <propertyId> <streamId>` — get stream details (measurementId, defaultUri)
+- `analytics-cli streams enhanced-measurement <propertyId> <streamId>` — get enhanced measurement settings (scrolls, outbound clicks, search, video, file downloads, form interactions)
+
+### metadata
+
+- `analytics-cli metadata dimensions <propertyId>` — list all available dimensions (apiName, uiName, description, category)
+- `analytics-cli metadata metrics <propertyId>` — list all available metrics (apiName, uiName, description, category, type)
+- `analytics-cli metadata compatibility <propertyId> [options]` — check which dimensions and metrics are compatible together
+  - `--dimensions <dims>` — dimensions to check
+  - `--metrics <metrics>` — metrics to check
+
+Use these to discover valid dimension/metric names before running reports, and verify compatibility.
+
+### config (property configuration)
+
+- `analytics-cli config conversions list <propertyId>` — list conversion events (deprecated, use key-events)
+- `analytics-cli config key-events list <propertyId>` — list key events
+- `analytics-cli config key-events get <keyEventName>` — get key event details (full resource name)
+- `analytics-cli config custom-dimensions list <propertyId>` — list custom dimensions
+- `analytics-cli config custom-metrics list <propertyId>` — list custom metrics
+- `analytics-cli config audiences list <propertyId>` — list audiences
+- `analytics-cli config audiences get <propertyId> <audienceId>` — get audience details
+- `analytics-cli config channel-groups list <propertyId>` — list channel groups
+- `analytics-cli config channel-groups get <channelGroupName>` — get channel group details (full resource name)
+- `analytics-cli config calculated-metrics list <propertyId>` — list calculated metrics
+- `analytics-cli config calculated-metrics get <calculatedMetricName>` — get calculated metric details (full resource name)
+
+### links (linked services)
+
+- `analytics-cli links google-ads list <propertyId>` — list Google Ads links
+- `analytics-cli links firebase list <propertyId>` — list Firebase links
+- `analytics-cli links bigquery list <propertyId>` — list BigQuery links
+- `analytics-cli links dv360 list <propertyId>` — list Display & Video 360 advertiser links
+- `analytics-cli links search-ads list <propertyId>` — list Search Ads 360 links
+- `analytics-cli links adsense list <propertyId>` — list AdSense links
+
+### settings
+
+- `analytics-cli settings data-retention get <propertyId>` — get data retention settings
+- `analytics-cli settings attribution get <propertyId>` — get attribution settings
+- `analytics-cli settings google-signals get <propertyId>` — get Google Signals settings (state, consent)
+
+### users (permissions)
+
+- `analytics-cli users list-account <accountId>` — list users on account
+- `analytics-cli users list-property <propertyId>` — list users on property
+- `analytics-cli users get-account <accountId> <linkId>` — get account user binding
+- `analytics-cli users get-property <propertyId> <linkId>` — get property user binding
+
+## Common GA4 Dimensions
+
+pagePath, pageTitle, pagePathPlusQueryString, fullPageUrl, hostName, landingPage, pageReferrer, date, dateHour, dateHourMinute, day, dayOfWeek, hour, month, week, year, deviceCategory, browser, operatingSystem, screenResolution, country, city, region, language, sessionSource, sessionMedium, sessionSourceMedium, sessionDefaultChannelGroup, sessionCampaignName, source, medium, sourceMedium, campaignName, eventName, newVsReturning, platform, userAgeBracket, userGender, firstSessionDate, contentGroup, searchTerm
+
+### Google Ads Dimensions
+
+sessionGoogleAdsCampaignName, sessionGoogleAdsAdGroupName, sessionGoogleAdsAdNetworkType, sessionGoogleAdsKeyword, sessionGoogleAdsQuery
+
+These require a linked Google Ads account. Rows from non-Ads traffic will be absent or show `(not set)`.
+
+## Common GA4 Metrics
+
+sessions, activeUsers, newUsers, totalUsers, screenPageViews, screenPageViewsPerSession, averageSessionDuration, bounceRate, engagementRate, engagedSessions, eventsPerSession, eventCount, eventCountPerUser, conversions, totalRevenue, purchaseRevenue, ecommercePurchases, transactions, addToCarts, checkouts, itemViews, sessionConversionRate, userConversionRate, userEngagementDuration, sessionsPerUser, dauPerMau, dauPerWau
+
+### Google Ads Cost Metrics
+
+advertiserAdCost, advertiserAdCostPerConversion, advertiserAdClicks, advertiserAdImpressions, returnOnAdSpend
+
+These require a linked Google Ads account. Only rows from Google Ads traffic will have non-zero cost values. Metric values are returned as numbers in JSON output (e.g. `142.57`, not `"142.57"`).
+
+### Google Ads Cost Analysis Examples
+
+```
+# Cost per conversion by campaign
+analytics-cli report run 123 --dimensions sessionGoogleAdsCampaignName --metrics advertiserAdCost,advertiserAdCostPerConversion,conversions,returnOnAdSpend --order-by advertiserAdCost --json
+
+# Cost breakdown by ad group
+analytics-cli report run 123 --dimensions sessionGoogleAdsAdGroupName --metrics advertiserAdCost,advertiserAdClicks,advertiserAdImpressions,conversions --order-by advertiserAdCost --json
+
+# Cost vs engagement — campaigns with high spend but poor engagement
+analytics-cli report run 123 --dimensions sessionGoogleAdsCampaignName --metrics advertiserAdCost,sessions,bounceRate,averageSessionDuration,conversions --order-by advertiserAdCost --json
+
+# Cost by keyword (only rows with actual spend)
+analytics-cli report run 123 --dimensions sessionGoogleAdsKeyword --metrics advertiserAdCost,advertiserAdCostPerConversion,sessions,bounceRate --metric-filter "advertiserAdCost > 0" --json
+
+# Batch: cost analysis across multiple dimensions
+echo '[
+  {"name":"by-campaign","dimensions":"sessionGoogleAdsCampaignName","metrics":"advertiserAdCost,conversions,returnOnAdSpend","orderBy":"advertiserAdCost"},
+  {"name":"by-keyword","dimensions":"sessionGoogleAdsKeyword","metrics":"advertiserAdCost,advertiserAdCostPerConversion,sessions","metricFilter":"advertiserAdCost > 0"}
+]' | analytics-cli batch 123 --json
+```
+
+## Workflow Tips
+
+1. Start with `accounts list` to find your account ID, then `properties list <accountId>` for the property ID.
+2. Use `metadata dimensions <propertyId>` and `metadata metrics <propertyId>` to discover valid field names.
+3. Use `--json` for structured output that includes metadata about the query.
+4. Use `report batch` with `--stdin` to run multiple queries in a single invocation — useful for comparative analysis.
+5. Date comparison: add `--compare-start` and `--compare-end` to get side-by-side period data. GA4 adds a `dateRange` dimension to rows (`date_range_0` = primary, `date_range_1` = comparison).
+6. If a field name is wrong, the CLI suggests the closest valid name.
