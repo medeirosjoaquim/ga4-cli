@@ -1,6 +1,6 @@
 # analytics-cli
 
-> Node.js CLI for read-only access to Google Analytics 4 data. Queries the GA4 Data API and Admin API. Authenticates via OAuth 2.0. Read-only — no mutations. All commands output table, JSON, or CSV. Property IDs accept bare numbers (auto-prefixed with `properties/`). Account IDs accept bare numbers (auto-prefixed with `accounts/`).
+> Node.js CLI for read/write access to Google Analytics 4 and Google Ads data. Queries the GA4 Data API, Admin API, and Google Ads API (via GAQL). Authenticates via OAuth 2.0. All commands output table, JSON, or CSV. Property IDs accept bare numbers (auto-prefixed with `properties/`). Account IDs accept bare numbers (auto-prefixed with `accounts/`). Google Ads customer IDs accept bare numbers (dashes stripped automatically).
 
 ## Authentication
 
@@ -62,6 +62,10 @@ Options:
 - `--asc` — ascending order (default is descending)
 - `--filter <expr>` — dimension filter, repeatable, AND logic
 - `--metric-filter <expr>` — metric filter, repeatable, AND logic
+- `--offset <n>` — row offset for pagination
+- `--keep-empty-rows` — include empty rows in results
+- `--return-quota` — return property quota information
+- `--currency <code>` — currency code for metrics (e.g. USD, EUR)
 
 When `--json` is used, output is a structured envelope:
 
@@ -146,8 +150,18 @@ Output with `--json` is `{"top-pages": [...rows], "devices": [...rows]}`.
 ### report realtime
 
 ```
-analytics-cli report realtime <propertyId> --dimensions <dims> --metrics <metrics>
+analytics-cli report realtime <propertyId> [options]
 ```
+
+Options:
+- `--dimensions <dims>` — comma-separated dimensions
+- `--metrics <metrics>` — comma-separated metrics
+- `--minute-range <start:end>` — minute range (repeatable, max 2)
+- `--filter <expr>` — dimension filter (repeatable, AND logic)
+- `--metric-filter <expr>` — metric filter (repeatable, AND logic)
+- `--limit <n>` — row limit
+- `--order-by <field>` — sort by field
+- `--asc` — ascending order
 
 ### report cohort
 
@@ -180,6 +194,25 @@ analytics-cli report pivot 123 --dimensions country,deviceCategory --metrics ses
 ```
 analytics-cli report funnel <propertyId> --steps name:eventName,name:eventName [--dimensions <dim>] [--start <date>] [--end <date>]
 ```
+
+Options:
+- `--steps <steps>` — funnel steps as name:eventName,name:eventName
+- `--dimensions <dims>` — comma-separated dimensions
+- `--start <date>` / `--end <date>` — date range
+- `--trended` — use trended funnel visualization
+- `--breakdown-limit <n>` — limit for funnel breakdown rows
+- `--next-action` — include next action dimension (eventName)
+
+### report batch-pivot
+
+Run multiple named pivot queries from a JSON file or stdin.
+
+```
+analytics-cli report batch-pivot <propertyId> --queries <file> [--json]
+analytics-cli report batch-pivot <propertyId> --stdin [--json]
+```
+
+Same format as `report batch` with additional `pivots` array on each query object.
 
 ## Admin Commands
 
@@ -259,6 +292,60 @@ Use these to discover valid dimension/metric names before running reports, and v
 - `analytics-cli users get-account <accountId> <linkId>` — get account user binding
 - `analytics-cli users get-property <propertyId> <linkId>` — get property user binding
 
+## Admin Write Operations
+
+### Custom Dimensions CRUD
+
+- `analytics-cli config custom-dimensions get <propertyId> <customDimensionId>` — get details
+- `analytics-cli config custom-dimensions create <propertyId> --parameter-name <name> --display-name <name> --scope EVENT|USER|ITEM [--description <desc>]`
+- `analytics-cli config custom-dimensions update <propertyId> <customDimensionId> [--display-name <name>] [--description <desc>]`
+- `analytics-cli config custom-dimensions archive <propertyId> <customDimensionId>` — archive
+
+### Custom Metrics CRUD
+
+- `analytics-cli config custom-metrics get <propertyId> <customMetricId>` — get details
+- `analytics-cli config custom-metrics create <propertyId> --parameter-name <name> --display-name <name> --scope EVENT --measurement-unit STANDARD|CURRENCY|... [--description <desc>]`
+- `analytics-cli config custom-metrics update <propertyId> <customMetricId> [--display-name <name>] [--description <desc>] [--measurement-unit <unit>]`
+- `analytics-cli config custom-metrics archive <propertyId> <customMetricId>` — archive
+
+### Key Events CRUD
+
+- `analytics-cli config key-events create <propertyId> --event-name <name> [--counting-method ONCE_PER_EVENT|ONCE_PER_SESSION] [--default-value <amount:currency>]`
+- `analytics-cli config key-events update <keyEventName> [--counting-method <method>] [--default-value <amount:currency>]`
+- `analytics-cli config key-events delete <keyEventName>` — delete
+
+### Audiences CRUD
+
+- `analytics-cli config audiences create <propertyId> --display-name <name> [--description <desc>] [--membership-duration-days <n>] [--filter-json <path>]`
+- `analytics-cli config audiences update <propertyId> <audienceId> [--display-name <name>] [--description <desc>]`
+- `analytics-cli config audiences archive <propertyId> <audienceId>` — archive
+
+### Settings Updates
+
+- `analytics-cli settings data-retention update <propertyId> [--event-data-retention <period>] [--reset-on-new-activity] [--no-reset-on-new-activity]`
+- `analytics-cli settings attribution update <propertyId> [--model <model>] [--acquisition-lookback <window>] [--other-lookback <window>]`
+- `analytics-cli settings google-signals update <propertyId> --state GOOGLE_SIGNALS_ENABLED|GOOGLE_SIGNALS_DISABLED`
+
+### Data Stream Management
+
+- `analytics-cli streams create <propertyId> --type WEB_DATA_STREAM|ANDROID_APP_DATA_STREAM|IOS_APP_DATA_STREAM --display-name <name> [--url <url>]`
+- `analytics-cli streams update <propertyId> <streamId> --display-name <name>`
+- `analytics-cli streams delete <propertyId> <streamId>`
+- `analytics-cli streams measurement-secrets list <propertyId> <streamId>`
+- `analytics-cli streams measurement-secrets create <propertyId> <streamId> --display-name <name>`
+- `analytics-cli streams measurement-secrets delete <propertyId> <streamId> <secretId>`
+
+### User Access Management
+
+- `analytics-cli users create-account <accountId> --email <email> [--roles <role>]` (repeatable roles)
+- `analytics-cli users create-property <propertyId> --email <email> [--roles <role>]`
+- `analytics-cli users update-account <accountId> <bindingId> --roles <role>`
+- `analytics-cli users update-property <propertyId> <bindingId> --roles <role>`
+- `analytics-cli users delete-account <accountId> <bindingId>`
+- `analytics-cli users delete-property <propertyId> <bindingId>`
+
+Note: Users need to re-login after updating to grant the `analytics.manage.users` scope.
+
 ## Common GA4 Dimensions
 
 pagePath, pageTitle, pagePathPlusQueryString, fullPageUrl, hostName, landingPage, pageReferrer, date, dateHour, dateHourMinute, day, dayOfWeek, hour, month, week, year, deviceCategory, browser, operatingSystem, screenResolution, country, city, region, language, sessionSource, sessionMedium, sessionSourceMedium, sessionDefaultChannelGroup, sessionCampaignName, source, medium, sourceMedium, campaignName, eventName, newVsReturning, platform, userAgeBracket, userGender, firstSessionDate, contentGroup, searchTerm
@@ -299,6 +386,379 @@ echo '[
   {"name":"by-campaign","dimensions":"sessionGoogleAdsCampaignName","metrics":"advertiserAdCost,conversions,returnOnAdSpend","orderBy":"advertiserAdCost"},
   {"name":"by-keyword","dimensions":"sessionGoogleAdsKeyword","metrics":"advertiserAdCost,advertiserAdCostPerConversion,sessions","metricFilter":"advertiserAdCost > 0"}
 ]' | analytics-cli batch 123 --json
+```
+
+## Google Ads Commands
+
+Google Ads commands use GAQL (Google Ads Query Language) for direct access to Google Ads data. Requires a Google Ads developer token.
+
+### Setup
+
+```
+analytics-cli ads setup
+```
+
+Interactive prompts for:
+- Developer token (from Google Ads API Center)
+- MCC (manager) account ID (optional, for managing multiple accounts)
+- Default customer ID
+
+Config is saved to `~/.ga-cli/config.json`. After setup, re-run `analytics-cli login` to grant the adwords OAuth scope.
+
+### ads accounts
+
+List accessible customer accounts (requires MCC account).
+
+```
+analytics-cli ads accounts [--customer-id <mccId>]
+```
+
+### ads campaigns
+
+List campaigns with performance metrics.
+
+```
+analytics-cli ads campaigns [options]
+```
+
+Options:
+- `--customer-id <id>` — override default customer ID
+- `--status <status>` — filter: ENABLED, PAUSED, REMOVED
+- `--start <date>` / `--end <date>` — date range (YYYY-MM-DD)
+- `--during <period>` — predefined period (LAST_30_DAYS, LAST_7_DAYS, THIS_MONTH, LAST_MONTH, etc.)
+- `--order-by <field>` — order by field (e.g. metrics.clicks, metrics.cost_micros)
+- `--limit <n>` — row limit (default: 50)
+
+Default metrics: impressions, clicks, ctr, cost, conversions, cost_per_conversion.
+
+### ads adgroups
+
+List ad groups with performance metrics.
+
+```
+analytics-cli ads adgroups [options]
+```
+
+Same options as `ads campaigns` plus:
+- `--campaign <id>` — filter by campaign ID
+
+### ads ads
+
+List ads with performance metrics.
+
+```
+analytics-cli ads ads [options]
+```
+
+Same options as `ads adgroups` plus:
+- `--adgroup <id>` — filter by ad group ID
+
+### ads keywords
+
+List keywords with performance and quality score.
+
+```
+analytics-cli ads keywords [options]
+```
+
+Options: same as `ads adgroups` (--customer-id, --campaign, --adgroup, --start, --end, --during, --order-by, --limit).
+
+Default metrics: impressions, clicks, ctr, cost, conversions, quality_score.
+
+### ads search-terms
+
+List actual search terms that triggered ads.
+
+```
+analytics-cli ads search-terms [options]
+```
+
+Options: same as `ads keywords`.
+
+Default metrics: impressions, clicks, conversions, cost.
+
+### ads geo
+
+Geographic performance breakdown.
+
+```
+analytics-cli ads geo [options]
+```
+
+Options: --customer-id, --campaign, --start, --end, --during, --order-by, --limit.
+
+### ads devices
+
+Device performance breakdown (MOBILE, DESKTOP, TABLET).
+
+```
+analytics-cli ads devices [options]
+```
+
+Options: --customer-id, --campaign, --start, --end, --during, --order-by, --limit.
+
+### ads demographics
+
+Age or gender demographic breakdown.
+
+```
+analytics-cli ads demographics [--type age|gender] [options]
+```
+
+Options: --customer-id, --campaign, --start, --end, --during, --order-by, --limit.
+- `--type <type>` — `age` (default) or `gender`
+
+### ads landing-pages
+
+Landing page performance.
+
+```
+analytics-cli ads landing-pages [options]
+```
+
+Options: --customer-id, --campaign, --start, --end, --during, --order-by, --limit.
+
+### ads budgets
+
+Campaign budget utilization report.
+
+```
+analytics-cli ads budgets [options]
+```
+
+Options: --customer-id, --start, --end, --during, --limit.
+
+Shows: campaign name, status, budget amount, delivery method, actual cost, clicks, impressions.
+
+### ads audiences
+
+List audience performance metrics.
+
+```
+analytics-cli ads audiences [--level campaign|adgroup] [--campaign <id>] [options]
+```
+
+### ads conversions
+
+List conversion actions.
+
+```
+analytics-cli ads conversions [--customer-id <id>] [--status <status>] [--limit <n>]
+```
+
+### ads change-history
+
+View change history events.
+
+```
+analytics-cli ads change-history [--resource-type <type>] [options]
+```
+
+### ads recommendations
+
+View recommendations.
+
+```
+analytics-cli ads recommendations [--type <type>] [--customer-id <id>] [--limit <n>]
+```
+
+### ads assets
+
+List assets.
+
+```
+analytics-cli ads assets [--type <type>] [--customer-id <id>] [--limit <n>]
+```
+
+### ads shopping
+
+Shopping performance view.
+
+```
+analytics-cli ads shopping [--campaign <id>] [options]
+```
+
+### ads extensions
+
+List asset group assets (extensions).
+
+```
+analytics-cli ads extensions [--campaign <id>] [--customer-id <id>] [--limit <n>]
+```
+
+### ads labels
+
+List labels.
+
+```
+analytics-cli ads labels [--customer-id <id>] [--limit <n>]
+```
+
+### ads schedule
+
+Hour-of-day and day-of-week performance breakdown.
+
+```
+analytics-cli ads schedule [--campaign <id>] [--by hour|dow] [--start <date>] [--end <date>] [--during <period>] [--order-by <field>] [--limit <n>]
+```
+
+Options:
+- `--by <segment>` — `hour` (default, 0-23) or `dow` (day of week: MONDAY, TUESDAY, etc.)
+
+### ads daily
+
+Daily performance trend by campaign.
+
+```
+analytics-cli ads daily [--campaign <id>] [--start <date>] [--end <date>] [--during <period>] [--limit <n>]
+```
+
+Returns date, campaign name, impressions, clicks, CTR, conversions, cost, cost_per_conversion. Ordered by date DESC.
+
+### ads impression-share
+
+Impression share and competitive metrics.
+
+```
+analytics-cli ads impression-share [--campaign <id>] [--start <date>] [--end <date>] [--during <period>] [--order-by <field>] [--limit <n>]
+```
+
+Returns: campaign name, status, impressions, clicks, cost, search_impression_share, search_top_impression_percentage, search_absolute_top_impression_percentage, search_budget_lost_impression_share, search_rank_lost_impression_share, content_impression_share, content_budget_lost_impression_share, content_rank_lost_impression_share.
+
+### ads account-stats
+
+Account-level aggregate performance.
+
+```
+analytics-cli ads account-stats [--start <date>] [--end <date>] [--during <period>]
+```
+
+Returns: account name, ID, currency, timezone, impressions, clicks, CTR, cost, conversions, cost_per_conversion, all_conversions, all_conversions_value.
+
+### ads placements
+
+Display/YouTube placement performance.
+
+```
+analytics-cli ads placements [--campaign <id>] [--start <date>] [--end <date>] [--during <period>] [--order-by <field>] [--limit <n>]
+```
+
+Returns: placement display name, target URL, placement type, campaign, impressions, clicks, CTR, conversions, cost.
+
+### ads bid-strategies
+
+Bid strategy performance for enabled campaigns.
+
+```
+analytics-cli ads bid-strategies [--start <date>] [--end <date>] [--during <period>] [--limit <n>]
+```
+
+Returns: campaign name, bidding_strategy_type (MAXIMIZE_CONVERSIONS, TARGET_CPA, MANUAL_CPC, etc.), budget amount, impressions, clicks, CTR, cost, conversions, cost_per_conversion.
+
+### ads negative-keywords
+
+List negative keywords at campaign or ad group level.
+
+```
+analytics-cli ads negative-keywords [--campaign <id>] [--level campaign|adgroup] [--limit <n>]
+```
+
+Returns: keyword text, match type, campaign (and ad group if `--level adgroup`). No date filtering.
+
+### ads ad-strength
+
+Responsive search ad strength ratings with performance.
+
+```
+analytics-cli ads ad-strength [--campaign <id>] [--adgroup <id>] [--start <date>] [--end <date>] [--during <period>] [--limit <n>]
+```
+
+Returns: ad ID, ad_strength (EXCELLENT, GOOD, AVERAGE, POOR), final URLs, status, ad group, campaign, impressions, clicks, CTR, conversions, cost.
+
+### ads query
+
+Run any arbitrary GAQL query.
+
+```
+analytics-cli ads query "<GAQL>" [--customer-id <id>]
+```
+
+Examples:
+```
+# Raw GAQL
+analytics-cli ads query "SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS ORDER BY metrics.clicks DESC LIMIT 10" --json
+
+# Get all campaign names
+analytics-cli ads query "SELECT campaign.name, campaign.status FROM campaign LIMIT 100"
+
+# Search terms with high spend
+analytics-cli ads query "SELECT search_term_view.search_term, metrics.cost_micros, metrics.conversions FROM search_term_view WHERE segments.date DURING LAST_30_DAYS AND metrics.cost_micros > 5000000 ORDER BY metrics.cost_micros DESC"
+```
+
+### GAQL Date Periods
+
+Used with `--during` flag on structured commands or in raw GAQL queries:
+
+LAST_7_DAYS, LAST_14_DAYS, LAST_30_DAYS, THIS_MONTH, LAST_MONTH, THIS_QUARTER, LAST_QUARTER, THIS_YEAR, LAST_YEAR, TODAY, YESTERDAY
+
+### Cost Handling
+
+All `cost_micros` fields are automatically converted to human-readable cost values (÷1,000,000, 2 decimal places). A value of `5230000` becomes `5.23`.
+
+### Google Ads Example Workflows
+
+```
+# 1. Setup
+analytics-cli ads setup
+analytics-cli login  # re-authenticate with adwords scope
+
+# 2. Find accounts
+analytics-cli ads accounts --customer-id 1234567890
+
+# 3. Campaign overview
+analytics-cli ads campaigns --during LAST_30_DAYS --json
+
+# 4. Drill into a campaign's ad groups
+analytics-cli ads adgroups --campaign 12345678 --during LAST_30_DAYS
+
+# 5. Check search terms eating budget
+analytics-cli ads search-terms --during LAST_30_DAYS --order-by metrics.cost_micros --limit 20
+
+# 6. Budget utilization
+analytics-cli ads budgets --during THIS_MONTH --json
+
+# 7. Device breakdown
+analytics-cli ads devices --during LAST_30_DAYS --csv
+
+# 8. Raw GAQL for custom analysis
+analytics-cli ads query "SELECT campaign.name, metrics.conversions, metrics.cost_per_conversion FROM campaign WHERE segments.date DURING LAST_30_DAYS AND metrics.conversions > 0 ORDER BY metrics.cost_per_conversion ASC" --json
+
+# 9. Competitive position — impression share
+analytics-cli ads impression-share --during LAST_30_DAYS --json
+
+# 10. Hourly performance patterns
+analytics-cli ads schedule --by hour --during LAST_30_DAYS --json
+
+# 11. Day-of-week patterns
+analytics-cli ads schedule --by dow --during LAST_30_DAYS --json
+
+# 12. Daily trends
+analytics-cli ads daily --during LAST_30_DAYS --json
+
+# 13. Account-level aggregate
+analytics-cli ads account-stats --during THIS_MONTH --json
+
+# 14. Bid strategy analysis
+analytics-cli ads bid-strategies --during LAST_30_DAYS --json
+
+# 15. Ad creative quality
+analytics-cli ads ad-strength --during LAST_30_DAYS --json
+
+# 16. Negative keyword audit
+analytics-cli ads negative-keywords --json
+
+# 17. Display placements
+analytics-cli ads placements --during LAST_30_DAYS --json
 ```
 
 ## Workflow Tips
