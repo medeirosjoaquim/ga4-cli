@@ -95,6 +95,11 @@ export function buildReportRequest(property, q) {
   const metExprs = (Array.isArray(metFilters) ? metFilters : [metFilters]).map(parseMetricFilter);
   if (metExprs.length) request.metricFilter = wrapAndGroup(metExprs);
 
+  if (q.offset) request.offset = parseInt(q.offset, 10);
+  if (q.keepEmptyRows) request.keepEmptyRows = true;
+  if (q.returnQuota) request.returnPropertyQuota = true;
+  if (q.currency) request.currencyCode = q.currency;
+
   return request;
 }
 
@@ -117,6 +122,10 @@ export function registerReport(program) {
     .option('--asc', 'Ascending order (default is descending)')
     .option('--filter <expr>', 'Dimension filter (repeatable, AND logic)', collect, [])
     .option('--metric-filter <expr>', 'Metric filter (repeatable, AND logic)', collect, [])
+    .option('--offset <n>', 'Row offset for pagination')
+    .option('--keep-empty-rows', 'Include empty rows in results')
+    .option('--return-quota', 'Return property quota information')
+    .option('--currency <code>', 'Currency code for metrics (e.g. USD, EUR)')
     .addHelpText('after', `
 Examples:
   $ analytics-cli report run 123 --dimensions city --metrics sessions --limit 10
@@ -144,6 +153,10 @@ Google Ads cost analysis (requires linked Google Ads account):
         compareRange: opts.compareStart ? { start: opts.compareStart, end: opts.compareEnd } : null,
         filters: [...(opts.filter || []), ...(opts.metricFilter || []).map(f => `[metric] ${f}`)],
       };
+
+      if (opts.returnQuota && response.propertyQuota) {
+        metadata.propertyQuota = response.propertyQuota;
+      }
 
       output(data.length ? data : 'No data for the given parameters', globalOpts, metadata);
     }));
@@ -184,6 +197,55 @@ Each query object supports the same fields as 'report run' flags (dimensions, me
         const chunkNames = names.slice(i, i + 5);
         const [response] = await client.batchRunReports({ property, requests: chunk });
         (response.reports || []).forEach((report, j) => {
+          results[chunkNames[j]] = parseReportRows(report);
+        });
+      }
+
+      output(results, cmd.optsWithGlobals());
+    }));
+
+  // Batch pivot report
+  report
+    .command('batch-pivot <propertyId>')
+    .description('Run multiple named pivot queries from a JSON file or stdin')
+    .option('--queries <file>', 'JSON file with array of query objects')
+    .option('--stdin', 'Read queries from stdin')
+    .addHelpText('after', `
+Query JSON format: [{ "name": "...", "dimensions": "...", "metrics": "...", "pivots": ["fieldNames:dim;limit:N"], ... }]
+Each query supports the same fields as 'report run' plus "pivots" (array of pivot spec strings).`)
+    .action(withErrorHandler(async (propertyId, opts, cmd) => {
+      const client = await getDataClient();
+      const property = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+
+      let raw;
+      if (opts.stdin) {
+        const chunks = [];
+        for await (const chunk of process.stdin) chunks.push(chunk);
+        raw = Buffer.concat(chunks).toString('utf8');
+      } else if (opts.queries) {
+        raw = readFileSync(opts.queries, 'utf8');
+      } else {
+        throw new Error('Provide --queries <file> or --stdin');
+      }
+
+      const queries = JSON.parse(raw);
+      if (!Array.isArray(queries)) throw new Error('Queries must be a JSON array');
+
+      const names = queries.map((q, i) => q.name || `query_${i}`);
+      const requests = queries.map(q => {
+        const req = buildReportRequest(property, q);
+        if (q.pivots) {
+          req.pivots = (Array.isArray(q.pivots) ? q.pivots : [q.pivots]).map(parsePivotSpec);
+        }
+        return req;
+      });
+
+      const results = {};
+      for (let i = 0; i < requests.length; i += 5) {
+        const chunk = requests.slice(i, i + 5);
+        const chunkNames = names.slice(i, i + 5);
+        const [response] = await client.batchRunPivotReports({ property, requests: chunk });
+        (response.pivotReports || []).forEach((report, j) => {
           results[chunkNames[j]] = parseReportRows(report);
         });
       }
@@ -238,6 +300,12 @@ Examples:
     .description('Real-time report')
     .option('--dimensions <dims>', 'Comma-separated dimensions')
     .option('--metrics <metrics>', 'Comma-separated metrics')
+    .option('--minute-range <range>', 'Minute range as start:end (repeatable, max 2)', collect, [])
+    .option('--filter <expr>', 'Dimension filter (repeatable, AND logic)', collect, [])
+    .option('--metric-filter <expr>', 'Metric filter (repeatable, AND logic)', collect, [])
+    .option('--limit <n>', 'Row limit')
+    .option('--order-by <field>', 'Sort by metric')
+    .option('--asc', 'Ascending order (default is descending)')
     .action(withErrorHandler(async (propertyId, opts, cmd) => {
       const client = await getDataClient();
       const property = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
@@ -248,6 +316,20 @@ Examples:
       }
       if (opts.metrics) {
         request.metrics = opts.metrics.split(',').map(name => ({ name: name.trim() }));
+      }
+      if (opts.minuteRange && opts.minuteRange.length) {
+        request.minuteRanges = opts.minuteRange.map(r => {
+          const [start, end] = r.split(':');
+          return { startMinutesAgo: parseInt(start, 10), endMinutesAgo: parseInt(end, 10) };
+        });
+      }
+      const dimExprs = (opts.filter || []).map(parseDimensionFilter);
+      if (dimExprs.length) request.dimensionFilter = wrapAndGroup(dimExprs);
+      const metExprs = (opts.metricFilter || []).map(parseMetricFilter);
+      if (metExprs.length) request.metricFilter = wrapAndGroup(metExprs);
+      if (opts.limit) request.limit = parseInt(opts.limit, 10);
+      if (opts.orderBy) {
+        request.orderBys = [{ metric: { metricName: opts.orderBy }, desc: !opts.asc }];
       }
 
       const [response] = await client.runRealtimeReport(request);
@@ -299,6 +381,9 @@ Examples:
     .option('--dimensions <dims>', 'Comma-separated dimensions')
     .option('--start <date>', 'Start date YYYY-MM-DD')
     .option('--end <date>', 'End date YYYY-MM-DD')
+    .option('--trended', 'Use trended funnel visualization')
+    .option('--breakdown-limit <n>', 'Limit for funnel breakdown rows')
+    .option('--next-action', 'Include next action dimension (eventName)')
     .action(withErrorHandler(async (propertyId, opts, cmd) => {
       const client = await getDataClient();
       const property = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
@@ -330,6 +415,9 @@ Examples:
         funnel: { steps },
       };
 
+      if (opts.trended) {
+        request.funnel.funnelVisualizationType = 'TRENDED_FUNNEL';
+      }
       if (opts.start || opts.end) {
         request.dateRanges = [{ startDate: opts.start || '30daysAgo', endDate: opts.end || 'today' }];
       }
@@ -337,6 +425,12 @@ Examples:
         request.funnelBreakdown = {
           breakdownDimension: { name: opts.dimensions.split(',')[0].trim() },
         };
+      }
+      if (opts.breakdownLimit && request.funnelBreakdown) {
+        request.funnelBreakdown.limit = parseInt(opts.breakdownLimit, 10);
+      }
+      if (opts.nextAction) {
+        request.funnelNextAction = { nextActionDimension: { name: 'eventName' } };
       }
 
       const [response] = await client.runFunnelReport(request);
