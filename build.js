@@ -13,6 +13,7 @@ await build({
   external: [
     '@google-analytics/data',
     '@google-analytics/admin',
+    'google-ads-api',
     'open',
   ],
 });

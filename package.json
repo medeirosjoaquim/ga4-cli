@@ -2,7 +2,7 @@
   "name": "analytics-cli",
   "version": "1.0.0",
   "type": "module",
-  "description": "Google Analytics CLI \u2014 Full read access to GA4 data",
+  "description": "Google Analytics CLI — Full read access to GA4 data",
   "main": "src/index.js",
   "bin": {
     "analytics-cli": "./bin/analytics-cli"
@@ -16,10 +16,11 @@
   "license": "ISC",
   "packageManager": "pnpm@10.11.0",
   "dependencies": {
-    "@google-analytics/admin": "^5.0.0",
-    "@google-analytics/data": "^4.0.0",
+    "@google-analytics/admin": "^9.0.1",
+    "@google-analytics/data": "^5.2.1",
     "cli-table3": "^0.6.5",
     "commander": "^13.0.0",
+    "google-ads-api": "^23.0.0",
     "open": "^10.0.0"
   },
   "devDependencies": {
