@@ -6,10 +6,7 @@ const CONFIG_DIR = join(homedir(), '.ga-cli');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 const TOKENS_FILE = join(CONFIG_DIR, 'tokens.json');
 
-const CLIENT_SECRET_PATH = join(
-  process.cwd(),
-  'client_secret.json'
-);
+const CLIENT_SECRET_PATH = join(CONFIG_DIR, 'client_secret.json');
 
 function ensureConfigDir() {
   if (!existsSync(CONFIG_DIR)) {

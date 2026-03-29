@@ -1,12 +1,16 @@
 import { createServer } from 'node:http';
 import { URL } from 'node:url';
-import open from 'open';
 import { loadClientSecret, loadTokens, saveTokens, clearTokens } from './config.js';
 
 const SCOPES = [
+  'openid',
+  'email',
+  'profile',
   'https://www.googleapis.com/auth/analytics.readonly',
   'https://www.googleapis.com/auth/analytics.manage.users.readonly',
+  'https://www.googleapis.com/auth/analytics.manage.users',
   'https://www.googleapis.com/auth/analytics',
+  'https://www.googleapis.com/auth/adwords',
 ];
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -118,9 +122,10 @@ export async function login() {
       authUrl.searchParams.set('scope', SCOPES.join(' '));
       authUrl.searchParams.set('access_type', 'offline');
       authUrl.searchParams.set('prompt', 'consent');
+      authUrl.searchParams.set('include_granted_scopes', 'false');
 
       console.log('Opening browser for Google login...');
-      open(authUrl.toString());
+      import('open').then(m => m.default(authUrl.toString()));
     });
   });
 }
@@ -161,6 +166,9 @@ export async function whoami() {
   const res = await fetch(USERINFO_URL, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error('Failed to fetch user info');
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Failed to fetch user info: ${res.status} ${res.statusText} - ${errBody}`);
+  }
   return res.json();
 }

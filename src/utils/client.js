@@ -2,12 +2,11 @@ import { BetaAnalyticsDataClient } from '@google-analytics/data';
 import { AnalyticsAdminServiceClient } from '@google-analytics/admin';
 import { getAccessToken } from '../auth.js';
 
-function makeAuthClient(token) {
-  const headers = { Authorization: `Bearer ${token}` };
+function makeAuthClient() {
   return {
-    getAccessToken: async () => ({ token }),
-    getRequestMetadata: async () => headers,
-    getRequestHeaders: async () => headers,
+    getAccessToken: async () => ({ token: await getAccessToken() }),
+    getRequestMetadata: async () => ({ Authorization: `Bearer ${await getAccessToken()}` }),
+    getRequestHeaders: async () => new Map([['Authorization', `Bearer ${await getAccessToken()}`]]),
   };
 }
 
@@ -16,8 +15,7 @@ function makeAuthClient(token) {
  * @returns {Promise<InstanceType<typeof BetaAnalyticsDataClient>>}
  */
 export async function getDataClient() {
-  const token = await getAccessToken();
-  return new BetaAnalyticsDataClient({ authClient: makeAuthClient(token) });
+  return new BetaAnalyticsDataClient({ authClient: makeAuthClient() });
 }
 
 /**
@@ -25,6 +23,5 @@ export async function getDataClient() {
  * @returns {Promise<InstanceType<typeof AnalyticsAdminServiceClient>>}
  */
 export async function getAdminClient() {
-  const token = await getAccessToken();
-  return new AnalyticsAdminServiceClient({ authClient: makeAuthClient(token) });
+  return new AnalyticsAdminServiceClient({ authClient: makeAuthClient() });
 }
