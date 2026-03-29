@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { getAdminClient } from '../utils/client.js';
 import { output } from '../output.js';
 import { withErrorHandler } from '../utils/errors.js';
@@ -44,6 +45,88 @@ export function registerConfigAdmin(program) {
       output(data, cmd.optsWithGlobals());
     }));
 
+  customDims
+    .command('get <propertyId> <customDimensionId>')
+    .description('Get custom dimension details')
+    .action(withErrorHandler(async (propertyId, customDimensionId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customDimensions/${customDimensionId}`;
+      const [dim] = await client.getCustomDimension({ name });
+      output({
+        name: dim.name,
+        parameterName: dim.parameterName,
+        displayName: dim.displayName,
+        description: dim.description,
+        scope: dim.scope,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customDims
+    .command('create <propertyId>')
+    .description('Create a custom dimension')
+    .requiredOption('--parameter-name <name>', 'Event parameter name')
+    .requiredOption('--display-name <name>', 'Display name')
+    .option('--description <desc>', 'Description')
+    .requiredOption('--scope <scope>', 'Scope: EVENT, USER, or ITEM')
+    .action(withErrorHandler(async (propertyId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const [dim] = await client.createCustomDimension({
+        parent,
+        customDimension: {
+          parameterName: opts.parameterName,
+          displayName: opts.displayName,
+          description: opts.description || '',
+          scope: opts.scope.toUpperCase(),
+        },
+      });
+      output({
+        name: dim.name,
+        parameterName: dim.parameterName,
+        displayName: dim.displayName,
+        scope: dim.scope,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customDims
+    .command('update <propertyId> <customDimensionId>')
+    .description('Update a custom dimension')
+    .option('--display-name <name>', 'New display name')
+    .option('--description <desc>', 'New description')
+    .action(withErrorHandler(async (propertyId, customDimensionId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customDimensions/${customDimensionId}`;
+      const updateMask = [];
+      const customDimension = { name };
+      if (opts.displayName) { customDimension.displayName = opts.displayName; updateMask.push('displayName'); }
+      if (opts.description !== undefined) { customDimension.description = opts.description; updateMask.push('description'); }
+      if (!updateMask.length) throw new Error('Provide at least --display-name or --description');
+      const [dim] = await client.updateCustomDimension({
+        customDimension,
+        updateMask: { paths: updateMask },
+      });
+      output({
+        name: dim.name,
+        parameterName: dim.parameterName,
+        displayName: dim.displayName,
+        description: dim.description,
+        scope: dim.scope,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customDims
+    .command('archive <propertyId> <customDimensionId>')
+    .description('Archive a custom dimension')
+    .action(withErrorHandler(async (propertyId, customDimensionId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customDimensions/${customDimensionId}`;
+      await client.archiveCustomDimension({ name });
+      output({ archived: name }, cmd.optsWithGlobals());
+    }));
+
   // Custom metrics
   const customMetrics = config.command('custom-metrics').description('Custom metrics');
   customMetrics
@@ -62,6 +145,95 @@ export function registerConfigAdmin(program) {
         measurementUnit: m.measurementUnit,
       }));
       output(data, cmd.optsWithGlobals());
+    }));
+
+  customMetrics
+    .command('get <propertyId> <customMetricId>')
+    .description('Get custom metric details')
+    .action(withErrorHandler(async (propertyId, customMetricId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customMetrics/${customMetricId}`;
+      const [metric] = await client.getCustomMetric({ name });
+      output({
+        name: metric.name,
+        parameterName: metric.parameterName,
+        displayName: metric.displayName,
+        description: metric.description,
+        scope: metric.scope,
+        measurementUnit: metric.measurementUnit,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customMetrics
+    .command('create <propertyId>')
+    .description('Create a custom metric')
+    .requiredOption('--parameter-name <name>', 'Event parameter name')
+    .requiredOption('--display-name <name>', 'Display name')
+    .option('--description <desc>', 'Description')
+    .requiredOption('--scope <scope>', 'Scope: EVENT')
+    .requiredOption('--measurement-unit <unit>', 'Unit: STANDARD, CURRENCY, FEET, METERS, KILOMETERS, MILES, MILLISECONDS, SECONDS, MINUTES, HOURS')
+    .action(withErrorHandler(async (propertyId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const [metric] = await client.createCustomMetric({
+        parent,
+        customMetric: {
+          parameterName: opts.parameterName,
+          displayName: opts.displayName,
+          description: opts.description || '',
+          scope: opts.scope.toUpperCase(),
+          measurementUnit: opts.measurementUnit.toUpperCase(),
+        },
+      });
+      output({
+        name: metric.name,
+        parameterName: metric.parameterName,
+        displayName: metric.displayName,
+        scope: metric.scope,
+        measurementUnit: metric.measurementUnit,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customMetrics
+    .command('update <propertyId> <customMetricId>')
+    .description('Update a custom metric')
+    .option('--display-name <name>', 'New display name')
+    .option('--description <desc>', 'New description')
+    .option('--measurement-unit <unit>', 'New measurement unit')
+    .action(withErrorHandler(async (propertyId, customMetricId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customMetrics/${customMetricId}`;
+      const updateMask = [];
+      const customMetric = { name };
+      if (opts.displayName) { customMetric.displayName = opts.displayName; updateMask.push('displayName'); }
+      if (opts.description !== undefined) { customMetric.description = opts.description; updateMask.push('description'); }
+      if (opts.measurementUnit) { customMetric.measurementUnit = opts.measurementUnit.toUpperCase(); updateMask.push('measurementUnit'); }
+      if (!updateMask.length) throw new Error('Provide at least one field to update');
+      const [metric] = await client.updateCustomMetric({
+        customMetric,
+        updateMask: { paths: updateMask },
+      });
+      output({
+        name: metric.name,
+        parameterName: metric.parameterName,
+        displayName: metric.displayName,
+        description: metric.description,
+        scope: metric.scope,
+        measurementUnit: metric.measurementUnit,
+      }, cmd.optsWithGlobals());
+    }));
+
+  customMetrics
+    .command('archive <propertyId> <customMetricId>')
+    .description('Archive a custom metric')
+    .action(withErrorHandler(async (propertyId, customMetricId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/customMetrics/${customMetricId}`;
+      await client.archiveCustomMetric({ name });
+      output({ archived: name }, cmd.optsWithGlobals());
     }));
 
   // Audiences
@@ -99,6 +271,70 @@ export function registerConfigAdmin(program) {
       }, cmd.optsWithGlobals());
     }));
 
+  audiences
+    .command('create <propertyId>')
+    .description('Create an audience')
+    .requiredOption('--display-name <name>', 'Display name')
+    .option('--description <desc>', 'Description')
+    .option('--membership-duration-days <n>', 'Membership duration in days', '30')
+    .option('--filter-json <path>', 'Path to JSON file with filterClauses array')
+    .action(withErrorHandler(async (propertyId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const audience = {
+        displayName: opts.displayName,
+        description: opts.description || '',
+        membershipDurationDays: parseInt(opts.membershipDurationDays, 10),
+      };
+      if (opts.filterJson) {
+        audience.filterClauses = JSON.parse(readFileSync(opts.filterJson, 'utf8'));
+      }
+      const [result] = await client.createAudience({ parent, audience });
+      output({
+        name: result.name,
+        displayName: result.displayName,
+        description: result.description,
+        membershipDurationDays: result.membershipDurationDays,
+      }, cmd.optsWithGlobals());
+    }));
+
+  audiences
+    .command('update <propertyId> <audienceId>')
+    .description('Update an audience')
+    .option('--display-name <name>', 'New display name')
+    .option('--description <desc>', 'New description')
+    .action(withErrorHandler(async (propertyId, audienceId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/audiences/${audienceId}`;
+      const updateMask = [];
+      const audience = { name };
+      if (opts.displayName) { audience.displayName = opts.displayName; updateMask.push('displayName'); }
+      if (opts.description !== undefined) { audience.description = opts.description; updateMask.push('description'); }
+      if (!updateMask.length) throw new Error('Provide at least --display-name or --description');
+      const [result] = await client.updateAudience({
+        audience,
+        updateMask: { paths: updateMask },
+      });
+      output({
+        name: result.name,
+        displayName: result.displayName,
+        description: result.description,
+        membershipDurationDays: result.membershipDurationDays,
+      }, cmd.optsWithGlobals());
+    }));
+
+  audiences
+    .command('archive <propertyId> <audienceId>')
+    .description('Archive an audience')
+    .action(withErrorHandler(async (propertyId, audienceId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const name = `${parent}/audiences/${audienceId}`;
+      await client.archiveAudience({ name });
+      output({ archived: name }, cmd.optsWithGlobals());
+    }));
+
   // Key events (replaces deprecated conversion events)
   const keyEvents = config.command('key-events').description('Key events');
   keyEvents
@@ -132,6 +368,67 @@ export function registerConfigAdmin(program) {
         deletable: keyEvent.deletable,
         createTime: keyEvent.createTime?.seconds ? new Date(Number(keyEvent.createTime.seconds) * 1000).toISOString() : '',
       }, cmd.optsWithGlobals());
+    }));
+
+  keyEvents
+    .command('create <propertyId>')
+    .description('Create a key event')
+    .requiredOption('--event-name <name>', 'Event name')
+    .option('--counting-method <method>', 'ONCE_PER_EVENT (default) or ONCE_PER_SESSION', 'ONCE_PER_EVENT')
+    .option('--default-value <amount:currency>', 'Default value as amount:currencyCode (e.g. 10.5:USD)')
+    .action(withErrorHandler(async (propertyId, opts, cmd) => {
+      const client = await getAdminClient();
+      const parent = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+      const keyEvent = {
+        eventName: opts.eventName,
+        countingMethod: opts.countingMethod.toUpperCase(),
+      };
+      if (opts.defaultValue) {
+        const [amount, currency] = opts.defaultValue.split(':');
+        keyEvent.defaultValue = { numericValue: parseFloat(amount), currencyCode: currency };
+      }
+      const [result] = await client.createKeyEvent({ parent, keyEvent });
+      output({
+        name: result.name,
+        eventName: result.eventName,
+        countingMethod: result.countingMethod,
+      }, cmd.optsWithGlobals());
+    }));
+
+  keyEvents
+    .command('update <keyEventName>')
+    .description('Update a key event (full resource name: properties/X/keyEvents/Y)')
+    .option('--counting-method <method>', 'ONCE_PER_EVENT or ONCE_PER_SESSION')
+    .option('--default-value <amount:currency>', 'Default value as amount:currencyCode')
+    .action(withErrorHandler(async (keyEventName, opts, cmd) => {
+      const client = await getAdminClient();
+      const updateMask = [];
+      const keyEvent = { name: keyEventName };
+      if (opts.countingMethod) { keyEvent.countingMethod = opts.countingMethod.toUpperCase(); updateMask.push('countingMethod'); }
+      if (opts.defaultValue) {
+        const [amount, currency] = opts.defaultValue.split(':');
+        keyEvent.defaultValue = { numericValue: parseFloat(amount), currencyCode: currency };
+        updateMask.push('defaultValue');
+      }
+      if (!updateMask.length) throw new Error('Provide at least --counting-method or --default-value');
+      const [result] = await client.updateKeyEvent({
+        keyEvent,
+        updateMask: { paths: updateMask },
+      });
+      output({
+        name: result.name,
+        eventName: result.eventName,
+        countingMethod: result.countingMethod,
+      }, cmd.optsWithGlobals());
+    }));
+
+  keyEvents
+    .command('delete <keyEventName>')
+    .description('Delete a key event (full resource name: properties/X/keyEvents/Y)')
+    .action(withErrorHandler(async (keyEventName, opts, cmd) => {
+      const client = await getAdminClient();
+      await client.deleteKeyEvent({ name: keyEventName });
+      output({ deleted: keyEventName }, cmd.optsWithGlobals());
     }));
 
   // Channel groups
