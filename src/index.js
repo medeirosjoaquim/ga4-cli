@@ -15,6 +15,15 @@ import { registerUsers } from './commands/users.js';
 import { registerReport } from './commands/report.js';
 import { registerMetadata } from './commands/metadata.js';
 import { registerBatch } from './commands/batch.js';
+import { registerAdsSetup } from './commands/ads-setup.js';
+import { registerAdsQuery } from './commands/ads-query.js';
+import { registerAdsCampaigns } from './commands/ads-campaigns.js';
+import { registerAdsKeywords } from './commands/ads-keywords.js';
+import { registerAdsPerformance } from './commands/ads-performance.js';
+import { registerAdsBudgets } from './commands/ads-budgets.js';
+import { registerAdsViews } from './commands/ads-views.js';
+import { registerAdsInsights } from './commands/ads-insights.js';
+import { registerAdsOptimization } from './commands/ads-optimization.js';
 
 const program = new Command();
 
@@ -70,5 +79,16 @@ registerUsers(program);
 registerReport(program);
 registerBatch(program);
 registerMetadata(program);
+
+// Google Ads commands — ads-setup creates the parent 'ads' command, others add subcommands
+const adsCmd = registerAdsSetup(program);
+registerAdsQuery(adsCmd);
+registerAdsCampaigns(adsCmd);
+registerAdsKeywords(adsCmd);
+registerAdsPerformance(adsCmd);
+registerAdsBudgets(adsCmd);
+registerAdsViews(adsCmd);
+registerAdsInsights(adsCmd);
+registerAdsOptimization(adsCmd);
 
 program.parse();
